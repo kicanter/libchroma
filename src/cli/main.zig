@@ -17,7 +17,10 @@ pub fn main(init: std.process.Init) u8 {
 
 fn run(init: std.process.Init) !void {
     const alloc = init.gpa;
-    var args = init.minimal.args.iterate();
+    var args = if (comptime @import("builtin").os.tag == .windows)
+        try init.minimal.args.iterateAllocator(alloc)
+    else
+        init.minimal.args.iterate();
     _ = args.skip(); // program name
 
     const cmd = args.next();

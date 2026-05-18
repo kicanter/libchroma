@@ -15,17 +15,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-slim
-            target: x86_64-linux
-          - os: ubuntu-24.04-arm
-            target: aarch64-linux
-          - os: macos-latest
-            target: aarch64-macos
-          - os: macos-15-intel
-            target: x86_64-macos
+        target:
+          - x86_64-linux-gnu
+          - aarch64-linux-gnu
+          - x86_64-macos
+          - aarch64-macos
+          - x86_64-windows-gnu
+          - aarch64-windows-gnu
+          - wasm32-freestanding
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-slim
     name: ${{ matrix.target }}
 
     steps:
@@ -36,14 +35,18 @@ jobs:
           version: 0.16.0
 
       - name: Build
-        run: zig build
+        run: zig build lib -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
 
       - name: Package
         run: |
           mkdir -p dist
-          cp zig-out/lib/libchroma.a dist/
-          cp zig-out/lib/libchroma.so dist/ 2>/dev/null || cp zig-out/lib/libchroma.dylib dist/ 2>/dev/null || true
-          cp zig-out/include/chroma.h dist/
+          cp zig-out/include/chroma.h dist/ 2>/dev/null || true
+          cp zig-out/lib/libchroma.a dist/ 2>/dev/null || true
+          cp zig-out/lib/libchroma.so* dist/ 2>/dev/null || true
+          cp zig-out/lib/libchroma.*dylib dist/ 2>/dev/null || true
+          cp zig-out/lib/chroma.lib dist/ 2>/dev/null || true
+          cp zig-out/bin/chroma.dll dist/ 2>/dev/null || true
+          cp zig-out/bin/chroma.wasm dist/ 2>/dev/null || true
           tar -czf libchroma-${{ matrix.target }}.tar.gz -C dist .
 
       - name: Upload

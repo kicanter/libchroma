@@ -11,16 +11,43 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const target_result = target.result;
+    const is_wasm = target_result.cpu.arch == .wasm32;
+
     const static_lib = addLibs(b, lib_mod, semver);
-    addCli(b, lib_mod, target, optimize);
-    addTests(b, lib_mod, target, optimize);
-    addExamples(b, lib_mod, static_lib, target, optimize);
+    if (!is_wasm) {
+        addCli(b, lib_mod, target, optimize);
+        addTests(b, lib_mod, target, optimize);
+        addExamples(b, lib_mod, static_lib, target, optimize);
+    }
 
     const nuke_step = b.step("nuke", "Remove all build artifacts and cache");
     nuke_step.dependOn(&b.addSystemCommand(&.{ "rm", "-rf", ".zig-cache", "zig-out" }).step);
 }
 
 fn addLibs(b: *std.Build, lib_mod: *std.Build.Module, semver: std.SemanticVersion) *std.Build.Step.Compile {
+    const target_result = lib_mod.resolved_target.?.result;
+    const is_wasm = target_result.cpu.arch == .wasm32;
+
+    const lib_step = b.step("lib", "Build only the library (static + dynamic or wasm32)");
+
+    if (is_wasm) {
+        const wasm_mod = b.createModule(.{
+            .root_source_file = b.path("src/lib.zig"),
+            .target = lib_mod.resolved_target.?,
+            .optimize = lib_mod.optimize.?,
+            .link_libc = false,
+        });
+        const wasm_exe = b.addExecutable(.{
+            .name = "chroma",
+            .root_module = wasm_mod,
+        });
+        wasm_exe.entry = .disabled;
+        const install = b.addInstallArtifact(wasm_exe, .{});
+        lib_step.dependOn(&install.step);
+        return wasm_exe;
+    }
+
     const static_lib = b.addLibrary(.{
         .name = "chroma",
         .linkage = .static,
@@ -33,17 +60,20 @@ fn addLibs(b: *std.Build, lib_mod: *std.Build.Module, semver: std.SemanticVersio
         .root_module = lib_mod,
         .version = semver,
     });
-    b.installArtifact(static_lib);
-    b.installArtifact(dynamic_lib);
-    b.installDirectory(.{
+    const install_static = b.addInstallArtifact(static_lib, .{});
+    const install_dynamic = b.addInstallArtifact(dynamic_lib, .{});
+    const install_headers = b.addInstallDirectory(.{
         .source_dir = b.path("include"),
         .install_dir = .header,
         .install_subdir = "",
     });
 
-    const lib_step = b.step("lib", "Build only the library (static + dynamic)");
-    lib_step.dependOn(&static_lib.step);
-    lib_step.dependOn(&dynamic_lib.step);
+    b.getInstallStep().dependOn(&install_static.step);
+    b.getInstallStep().dependOn(&install_dynamic.step);
+    b.getInstallStep().dependOn(&install_headers.step);
+    lib_step.dependOn(&install_static.step);
+    lib_step.dependOn(&install_dynamic.step);
+    lib_step.dependOn(&install_headers.step);
 
     return static_lib;
 }
